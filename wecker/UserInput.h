@@ -12,8 +12,10 @@ typedef enum {
 struct UserInput{
     RTCDateTime lastUserAction;
     InputMode mode;
-    ScreenSegment* cursorPosition;   
-    ScreenSegment* recentPosition;  
+    ScreenSegment* activeSegment;   
+    ScreenSegment* recentActiveSegment; 
+    uint8_t cursorPos; 
+    uint8_t setc;
 };
 
 #endif

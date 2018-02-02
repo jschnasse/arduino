@@ -16,19 +16,20 @@
 #define SDA "sda"
 #define SCL "scl"
 
-//Buttons
+//Rotary enc
 #define ROT_CLK 2
 #define ROT_DT 3
 #define ROT_SW 4
-#define A1_BTN 4
-#define A2_BTN 5
+
+//Buttons
+#define A1_BTN 5
+#define A2_BTN 6
 
 //Buzzer
 #define BUZZ 12
 
 //TERMO
-#define TERM 6
-
+#define TERM 7
 
 //Clock section
 DS3231 clock;
@@ -51,16 +52,11 @@ ScreenSegment temperatur("Temp");
 ScreenSegment* allSegments[8];
 UserInput input;
 
-//
-byte cursorPos=0;
 int RotaryPosition=0;
 volatile boolean TurnDetected;  
 volatile boolean rotationdirection; 
 int PrevPosition;   
 int StepsToTake;      
-bool select=false;
-bool cursorOn=false;
-int recentCursorRect[4];
 
 void setup() {
   Serial.begin(9600);
@@ -70,7 +66,7 @@ void setup() {
   //Kompilierzeit
   //clock.setDateTime(__DATE__, __TIME__);
   dt=clock.getDateTime();
-
+  
   allSegments[0]=&hour;
   allSegments[1]=&minute;
   allSegments[2]=&second;
@@ -119,9 +115,10 @@ void setup() {
   alarm2Minute.setTime(clock.getAlarm2().minute);
   alarm2Minute.setUpperLimit(60);
 
-  input.mode =SELECT;
-  input.cursorPosition=&none;
+  input.mode=SELECT;
+  input.activeSegment=&none;
   input.lastUserAction=dt;
+  input.setc=0;
   attachInterrupt (0,isr,FALLING);
   pinMode(ROT_SW, INPUT_PULLUP);
   printTime();
@@ -143,31 +140,22 @@ void printAll(){
   printTemperature();
 }
 
-void setAlarm2(uint8_t hour,uint8_t minute){
-  DS3231_alarm2_t mode2 = 0b00001000;//DS3231_MATCH_H_M 
-  clock.setAlarm2(1,hour,minute,mode2,true);
-}
-
-void setAlarm1(uint8_t hour,uint8_t minute){
-  DS3231_alarm1_t mode1 = 0b00001000;//DS3231_MATCH_H_M 
-  clock.setAlarm1(1,hour,minute,0,mode1,true);
-}
 void printTime(){
     if(dt.hour!=hour.getRecentTime()){
-      if(!(input.mode == SET && input.cursorPosition == &hour)){
+      if(!(input.mode == SET && input.activeSegment == &hour)){
         hour.setTime(dt.hour);
       }
       print(hour);
     }
     printSeparator();
     if(dt.minute!=minute.getRecentTime()){
-      if(!(input.mode == SET && input.cursorPosition == &minute)){
+      if(!(input.mode == SET && input.activeSegment == &minute)){
       minute.setTime(dt.minute);
       }
       print(minute);
     }
      if(dt.second!=second.getRecentTime()){
-      if(!(input.mode == SET && input.cursorPosition == &second)){
+      if(!(input.mode == SET && input.activeSegment == &second)){
         second.setTime(dt.second);
       }
       print(second);
@@ -189,30 +177,25 @@ void print(ScreenSegment& s){
 }
 
 void printCursor(){
-  TFTscreen.setTextSize(input.cursorPosition->getSize());
-  
+  TFTscreen.setTextSize(input.activeSegment->getSize());
   TFTscreen.stroke(bgcolor[0], bgcolor[1], bgcolor[2]);
-  TFTscreen.text(input.cursorPosition->getRecentTimeString().c_str(),input.cursorPosition->getTextPos()[0],input.cursorPosition->getTextPos()[1]);
- 
+  TFTscreen.text(input.activeSegment->getRecentTimeString().c_str(),input.activeSegment->getTextPos()[0],input.activeSegment->getTextPos()[1]);
   TFTscreen.fill( cursorcolor[0],  cursorcolor[1],  cursorcolor[2]);
-  TFTscreen.rect(input.cursorPosition->getScreenRect()[0],input.cursorPosition->getScreenRect()[1],input.cursorPosition->getScreenRect()[2],input.cursorPosition->getScreenRect()[3]);
-  
+  TFTscreen.rect(input.activeSegment->getScreenRect()[0],input.activeSegment->getScreenRect()[1],input.activeSegment->getScreenRect()[2],input.activeSegment->getScreenRect()[3]);
   TFTscreen.stroke(textcolor[0], textcolor[1], textcolor[2]);
-  TFTscreen.text(input.cursorPosition->getTimeAsString().c_str(),input.cursorPosition->getTextPos()[0],input.cursorPosition->getTextPos()[1]);
+  TFTscreen.text(input.activeSegment->getTimeAsString().c_str(),input.activeSegment->getTextPos()[0],input.activeSegment->getTextPos()[1]);
 }
 
 void deleteCursor(){
-  TFTscreen.setTextSize(input.recentPosition->getSize());
-  
+  TFTscreen.setTextSize(input.recentActiveSegment->getSize());
   TFTscreen.stroke(bgcolor[0], bgcolor[1], bgcolor[2]);
-  TFTscreen.text(input.recentPosition->getTimeAsString().c_str(),input.recentPosition->getTextPos()[0],input.recentPosition->getTextPos()[1]);
- 
+  TFTscreen.text(input.recentActiveSegment->getTimeAsString().c_str(),input.recentActiveSegment->getTextPos()[0],input.recentActiveSegment->getTextPos()[1]);
   TFTscreen.fill(bgcolor[0],  bgcolor[1],  bgcolor[2]);
-  TFTscreen.rect(input.recentPosition->getScreenRect()[0],input.recentPosition->getScreenRect()[1],input.recentPosition->getScreenRect()[2],input.recentPosition->getScreenRect()[3]);
-  
+  TFTscreen.rect(input.recentActiveSegment->getScreenRect()[0],input.recentActiveSegment->getScreenRect()[1],input.recentActiveSegment->getScreenRect()[2],input.recentActiveSegment->getScreenRect()[3]);
   TFTscreen.stroke(textcolor[0], textcolor[1], textcolor[2]);
-  TFTscreen.text(input.recentPosition->getTimeAsString().c_str(),input.recentPosition->getTextPos()[0],input.recentPosition->getTextPos()[1]);
+  TFTscreen.text(input.recentActiveSegment->getTimeAsString().c_str(),input.recentActiveSegment->getTextPos()[0],input.recentActiveSegment->getTextPos()[1]);
 }
+
 void printAlarm(String str,ScreenSegment hour,ScreenSegment minute){
   TFTscreen.stroke(textcolor[0], textcolor[1], textcolor[2]);
   TFTscreen.setTextSize(hour.getSize()-1);
@@ -248,10 +231,9 @@ void isr ()  {
   TurnDetected = true;
 }
 
-
 void cursorPosition(){
     if (TurnDetected)  {
-      input.recentPosition=input.cursorPosition;
+      input.recentActiveSegment=input.activeSegment;
       PrevPosition = RotaryPosition; // Vorherige Position in Variable speichern
       if (rotationdirection) {
         RotaryPosition=RotaryPosition-1;
@@ -259,20 +241,18 @@ void cursorPosition(){
       else {
         RotaryPosition=RotaryPosition+1;
       } // Erhöht die Position um 1
-  
       TurnDetected = false;  
       if ((PrevPosition + 1) == RotaryPosition) { 
         StepsToTake=50;
         cursormv(StepsToTake);
       }
-
       if ((RotaryPosition + 1) == PrevPosition) {         
         StepsToTake=-50;
         cursormv(StepsToTake);
       }
     }
 }
-uint8_t setc=0;
+
 /**
  * 1 = hour
  * 2 = min
@@ -285,38 +265,38 @@ uint8_t setc=0;
 void cursormv(int move){
  if(input.mode == SELECT){
    if(move < 0){
-    cursorPos++;
-    if(cursorPos > 7){
-      cursorPos=0;
+    input.cursorPos++;
+    if(input.cursorPos > 7){
+      input.cursorPos=0;
     }
    }
    else if(move >0){
-    cursorPos--;
-     if(cursorPos ==255){
-      cursorPos=7;
+    input.cursorPos--;
+     if(input.cursorPos ==255){
+      input.cursorPos=7;
     }
    }
-   input.cursorPosition = allSegments[cursorPos];
+   input.activeSegment = allSegments[input.cursorPos];
    Serial.print("SELECT: ");
-   Serial.println(input.cursorPosition->getName());
+   Serial.println(input.activeSegment->getName());
    deleteCursor();
    printCursor(); 
  }else if(input.mode == SET){
   if(move < 0){
-    setc++;
-    if(setc > input.cursorPosition->getUpperLimit()){
-      setc=0;
+    input.setc++;
+    if(input.setc > input.activeSegment->getUpperLimit()){
+      input.setc=0;
     }
    }
    else if(move >0){
-    setc--;
-     if(setc ==0){
-      setc=input.cursorPosition->getUpperLimit();
+    input.setc--;
+     if(input.setc ==0){
+      input.setc=input.activeSegment->getUpperLimit();
     }
    }
     Serial.print("SET: ");
-    Serial.println(setc);
-    input.cursorPosition->setTime(setc);
+    Serial.println(input.setc);
+    input.activeSegment->setTime(input.setc);
  }
 }
 
@@ -351,5 +331,13 @@ void beep(){
 Serial.println("bbbeeeeeeeeeeeeeeeeeeeeeeeeeeppppp");
 }
 
+void setAlarm2(uint8_t hour,uint8_t minute){
+  DS3231_alarm2_t mode2 = 0b00001000;//DS3231_MATCH_H_M 
+  clock.setAlarm2(1,hour,minute,mode2,true);
+}
 
+void setAlarm1(uint8_t hour,uint8_t minute){
+  DS3231_alarm1_t mode1 = 0b00001000;//DS3231_MATCH_H_M 
+  clock.setAlarm1(1,hour,minute,0,mode1,true);
+}
 
